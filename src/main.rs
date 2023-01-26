@@ -1,7 +1,10 @@
 use std::any::Any;
+use std::cell::RefCell;
 use std::collections::hash_map::*;
+use std::rc::Rc;
 
 use polars::datatypes::DataType;
+use polars::export::rayon::iter::plumbing::Reducer;
 use polars::prelude::*;
 use polars::toggle_string_cache;
 use polars_plan::dsl::*;
@@ -10,19 +13,17 @@ use rand::seq::SliceRandom;
 
 #[derive(Clone, Debug)]
 struct TreeNode {
-    col_name: String,
-    split_value: f64,
-    split_str: String,
-    true_branch: i32,
-    false_branch: i32,
+    pub col_name: String,
+    pub split_value: SplitValue,
+    pub true_branch: i32,
+    pub false_branch: i32,
 }
 
 impl TreeNode {
     fn new() -> TreeNode {
         TreeNode {
             col_name: String::new(),
-            split_value: 0.,
-            split_str: String::new(),
+            split_value: SplitValue::Numeric(0.),
             true_branch: -1,
             false_branch: -1,
         }
@@ -33,14 +34,14 @@ enum EvalFunc {
     Euclidiean,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Debug)]
 enum SplitValue {
     Numeric(f64),
     Str(String),
 }
 
 struct UpliftTreeModel {
-    nodes: Vec<TreeNode>,
+    nodes: RefCell<Vec<TreeNode>>,
     max_depth: i32,
     min_sample_leaf: i32,
     feature_sample_size: i32,
@@ -60,7 +61,7 @@ impl UpliftTreeModel {
         max_splits: i32,
     ) -> UpliftTreeModel {
         UpliftTreeModel {
-            nodes: vec![TreeNode::new(); 1 << max_depth - 1],
+            nodes: RefCell::new(vec![TreeNode::new(); 1 << max_depth - 1]),
             max_depth,
             min_sample_leaf,
             feature_sample_size,
@@ -117,9 +118,8 @@ impl UpliftTreeModel {
         }
         data = data.with_column(col(&self.treatment_col).cast(DataType::Int32));
         data = data.with_column(col(&self.outcome_col).cast(DataType::Int32));
-        let data = data.collect()?;
 
-        self.build(data, 0)?;
+        self.build(data.collect()?, 0, 0)?;
         Ok(())
     }
 
@@ -225,11 +225,32 @@ impl UpliftTreeModel {
         }
     }
 
-    fn build(&mut self, data: DataFrame, cur_idx: i32) -> Result<(), PolarsError> {
+    fn calc_norm(n_c: i32, n_t: i32, n_c_left: i32, n_t_left: i32) -> f64 {
+        let p_t = n_t as f64 / (n_t + n_c) as f64;
+        let p_c = 1. - p_t;
+        let p_c_left = n_c_left as f64 / (n_t_left + n_c_left) as f64;
+        let p_t_left = 1. - p_c_left;
+
+        (1. - p_t.powi(2) - p_c.powi(2)) * (p_c_left - p_t_left).powi(2)
+            + p_t * (1. - p_t_left.powi(2))
+            + p_c * (1. - p_c_left.powi(2))
+            + 0.5
+    }
+
+    fn build(&self, data: DataFrame, cur_idx: usize, depth: i32) -> Result<i32, PolarsError> {
+        if depth >= self.max_depth {
+            return Ok(-1);
+        }
         let rng = &mut rand::thread_rng();
-        let schema = data.schema();
         let cur_summary = self.summary(&data)?;
         let cur_score = self.calc_score(&cur_summary);
+        let n_c = cur_summary[0];
+        let n_t = cur_summary[2];
+        let mut max_gain: f64 = f64::MIN;
+        let mut best_data_left = DataFrame::empty();
+        let mut best_data_right = DataFrame::empty();
+        let mut split_col = String::new();
+        let mut split_value = SplitValue::Numeric(0.);
 
         for f in self
             .feature_cols
@@ -237,7 +258,7 @@ impl UpliftTreeModel {
         {
             let split_values = self.calc_split_values(data.column(f)?)?;
             for v in split_values {
-                let (data_left, data_right) = self.split_set(v, f, data.clone())?;
+                let (data_left, data_right) = self.split_set(v.clone(), f, data.clone())?;
                 let left_summary = self.summary(&data_left)?;
                 let right_summary = self.summary(&data_right)?;
                 if left_summary.len() != 4
@@ -249,10 +270,30 @@ impl UpliftTreeModel {
                 }
                 let left_score = self.calc_score(&left_summary);
                 let right_score = self.calc_score(&right_summary);
+                let p = data_left.shape().0 as f64 / data.shape().0 as f64;
+                let n_c_left = left_summary[0];
+                let n_t_left = left_summary[2];
+                let gain = (left_score * p + right_score * (1. - p) - cur_score)
+                    / UpliftTreeModel::calc_norm(n_c, n_t, n_c_left, n_t_left);
+                if gain > max_gain {
+                    best_data_left = data_left;
+                    best_data_right = data_right;
+                    max_gain = gain;
+                    split_col = f.clone();
+                    split_value = v;
+                }
             }
         }
-
-        Ok(())
+        if max_gain > 0. && depth < self.max_depth {
+            let cur_node = &mut self.nodes.borrow_mut()[cur_idx];
+            cur_node.col_name = split_col;
+            cur_node.split_value = split_value;
+            cur_node.true_branch = self.build(best_data_left, 2 * cur_idx + 1, depth + 1)?;
+            cur_node.false_branch = self.build(best_data_right, 2 * cur_idx + 2, depth + 1)?;
+            Ok(cur_idx as i32)
+        } else {
+            Ok(-1)
+        }
     }
 }
 
