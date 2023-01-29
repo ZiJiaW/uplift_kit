@@ -11,15 +11,15 @@ pub enum EvalFunc {
 
 #[derive(PartialEq, Clone, Debug)]
 enum SplitValue {
-    Numeric(f64),
+    Numeric(f32),
     Str(String),
 }
 
 impl SplitValue {
-    fn extract_f(&self) -> f64 {
+    fn extract_f(&self) -> f32 {
         match self {
             &SplitValue::Numeric(v) => v,
-            _ => panic!("not f64"),
+            _ => panic!("not f32"),
         }
     }
 
@@ -36,7 +36,7 @@ struct TreeNode {
     pub col_name: String,
     pub col_idx: i32,
     pub split_value: SplitValue,
-    pub prob: f64,
+    pub prob: f32,
 }
 
 impl TreeNode {
@@ -65,7 +65,7 @@ pub struct UpliftTreeModel {
 #[derive(Clone)]
 pub struct RawData {
     string_cols: Vec<Vec<String>>,
-    numeric_cols: Vec<Vec<f64>>,
+    numeric_cols: Vec<Vec<f32>>,
     treatment_col: Vec<i8>,
     outcome_col: Vec<i8>,
     idx_map: HashMap<String, i32>, // + for numeric, - for string
@@ -301,26 +301,26 @@ impl UpliftTreeModel {
         }
     }
 
-    fn calc_score(&self, v: &Vec<i32>) -> f64 {
+    fn calc_score(&self, v: &Vec<i32>) -> f32 {
         assert!(v.len() == 4);
-        let p = v[1] as f64 / v[0] as f64;
-        let q = v[3] as f64 / v[2] as f64;
+        let p = v[1] as f32 / v[0] as f32;
+        let q = v[3] as f32 / v[2] as f32;
         match self.eval_func {
             EvalFunc::Euclidiean => (p - q).powi(2),
         }
     }
 
-    fn calc_prob(v: &Vec<i32>) -> f64 {
+    fn calc_prob(v: &Vec<i32>) -> f32 {
         assert!(v.len() == 4);
-        let p = v[1] as f64 / v[0] as f64;
-        let q = v[3] as f64 / v[2] as f64;
+        let p = v[1] as f32 / v[0] as f32;
+        let q = v[3] as f32 / v[2] as f32;
         q - p
     }
 
-    fn calc_norm(n_c: i32, n_t: i32, n_c_left: i32, n_t_left: i32) -> f64 {
-        let p_t = n_t as f64 / (n_t + n_c) as f64;
+    fn calc_norm(n_c: i32, n_t: i32, n_c_left: i32, n_t_left: i32) -> f32 {
+        let p_t = n_t as f32 / (n_t + n_c) as f32;
         let p_c = 1. - p_t;
-        let p_c_left = n_c_left as f64 / (n_t_left + n_c_left) as f64;
+        let p_c_left = n_c_left as f32 / (n_t_left + n_c_left) as f32;
         let p_t_left = 1. - p_c_left;
 
         (1. - p_t.powi(2) - p_c.powi(2)) * (p_c_left - p_t_left).powi(2)
@@ -351,7 +351,7 @@ impl UpliftTreeModel {
         let cur_prob = UpliftTreeModel::calc_prob(&cur_summary);
         let n_c = cur_summary[0];
         let n_t = cur_summary[2];
-        let mut max_gain: f64 = f64::MIN;
+        let mut max_gain: f32 = f32::MIN;
         let mut best_data_left = RawData::empty();
         let mut best_data_right = RawData::empty();
         let mut cached_left_summary = Vec::new();
@@ -377,7 +377,7 @@ impl UpliftTreeModel {
                 }
                 let left_score = self.calc_score(&left_summary);
                 let right_score = self.calc_score(&right_summary);
-                let p = data_left.n_rows() as f64 / data.n_rows() as f64;
+                let p = data_left.n_rows() as f32 / data.n_rows() as f32;
                 let n_c_left = left_summary[0];
                 let n_t_left = left_summary[2];
                 let gain = (left_score * p + right_score * (1. - p) - cur_score)
@@ -421,7 +421,7 @@ impl UpliftTreeModel {
         }
     }
 
-    pub fn predict(&self, data_file: String) -> Result<Vec<f64>, PolarsError> {
+    pub fn predict(&self, data_file: String) -> Result<Vec<f32>, PolarsError> {
         let data = LazyFrame::scan_parquet(data_file, Default::default())?
             .select(
                 &self
@@ -442,7 +442,7 @@ impl UpliftTreeModel {
         Ok(result)
     }
 
-    pub fn predict_frame(&self, data: &DataFrame) -> Result<Vec<f64>, PolarsError> {
+    pub fn predict_frame(&self, data: &DataFrame) -> Result<Vec<f32>, PolarsError> {
         assert!(data.shape().1 == self.feature_cols.len());
         let data_len = data.shape().0;
         let row = &mut Row::new(vec![AnyValue::Float64(0.); self.feature_cols.len()]);
@@ -458,14 +458,14 @@ impl UpliftTreeModel {
         self.feature_cols.clone()
     }
 
-    fn classify(&self, x: &Vec<AnyValue>) -> f64 {
+    fn classify(&self, x: &Vec<AnyValue>) -> f32 {
         let mut cur_idx = 0;
         let nodes = &self.nodes;
         let mut cur_node = &nodes[cur_idx];
         while cur_node.prob < -1. {
             let cur_value = &x[cur_node.col_idx as usize];
             let going_left = match &cur_node.split_value {
-                SplitValue::Numeric(v) => cur_value.try_extract::<f64>().unwrap() <= *v,
+                SplitValue::Numeric(v) => cur_value.try_extract::<f32>().unwrap() <= *v,
                 SplitValue::Str(v) => *cur_value == AnyValue::Utf8(v),
             };
             cur_node = if going_left {

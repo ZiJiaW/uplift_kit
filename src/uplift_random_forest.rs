@@ -102,7 +102,7 @@ impl UpliftRandomForestModel {
         }
     }
 
-    pub fn predict(&self, data_file: String, mut n_threads: i32) -> Vec<f64> {
+    pub fn predict(&self, data_file: String, mut n_threads: i32) -> Vec<f32> {
         if n_threads < 0 {
             n_threads = num_cpus::get() as i32;
         }
@@ -165,7 +165,7 @@ impl UpliftRandomForestModel {
         assert!(count == self.n_estimators);
 
         for i in 0..res.len() {
-            res[i] /= self.n_estimators as f64;
+            res[i] /= self.n_estimators as f32;
         }
         res
     }
