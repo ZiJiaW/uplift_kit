@@ -83,7 +83,7 @@ impl UpliftRandomForestModel {
                         );
                         println!("fit one..");
                         single_tree.fit(
-                            data_inner.clone(),
+                            &data_inner,
                             treatment_col_inner.clone(),
                             outcome_col_inner.clone(),
                         );

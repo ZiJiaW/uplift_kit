@@ -329,12 +329,12 @@ impl UpliftTreeModel {
             + 0.5
     }
 
-    pub fn fit(&mut self, data: RawData, treatment_col: String, outcome_col: String) {
+    pub fn fit(&mut self, data: &RawData, treatment_col: String, outcome_col: String) {
         self.treatment_col = treatment_col.clone();
         self.outcome_col = outcome_col.clone();
         self.feature_cols = data.x_names.clone();
         let mut tree_nodes = vec![TreeNode::new(); (1 << self.max_depth + 1) - 1];
-        self.build(0, 0, &mut tree_nodes, data.summary(), data);
+        self.build(0, 0, &mut tree_nodes, data.summary(), data.clone());
         self.nodes = tree_nodes;
     }
 
