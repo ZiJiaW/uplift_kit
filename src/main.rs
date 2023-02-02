@@ -8,7 +8,7 @@ fn main() {
     let train_data_file = "train.parquet";
     let test_data_file = "test.parquet";
     let mut model =
-        uplift_random_forest::UpliftRandomForestModel::new(16, 10, 10, 100, "EC".to_string(), 12);
+        uplift_random_forest::UpliftRandomForestModel::new(100, 10, 10, 100, "EC".to_string(), 16);
     let tick = std::time::SystemTime::now();
     println!("start fitting!");
     model.fit(
@@ -19,7 +19,7 @@ fn main() {
     );
     let tock = std::time::SystemTime::now();
     println!("time cost: {:?}", tock.duration_since(tick).unwrap());
-    let res = model.predict(test_data_file.to_string(), 8);
+    let res = model.predict(test_data_file.to_string(), 10);
     println!("res: {:?}", &res[0..10]);
     let mut f = File::create("result.csv").unwrap();
     f.write(b"uplift\n").unwrap();
