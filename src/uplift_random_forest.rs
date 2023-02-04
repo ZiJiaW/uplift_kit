@@ -19,6 +19,9 @@ pub struct UpliftRandomForestModel {
     max_bins: i32,
     treatment_col: String,
     outcome_col: String,
+    balance: bool,
+    regularization: bool,
+    alpha: f64,
     trees: Vec<UpliftTreeModel>,
 }
 
@@ -30,6 +33,9 @@ impl UpliftRandomForestModel {
         min_sample_leaf: i32,
         eval_func: String,
         max_bins: i32,
+        balance: bool,
+        regularization: bool,
+        alpha: f64,
     ) -> UpliftRandomForestModel {
         UpliftRandomForestModel {
             n_estimators,
@@ -40,6 +46,9 @@ impl UpliftRandomForestModel {
             max_bins,
             treatment_col: String::new(),
             outcome_col: String::new(),
+            balance,
+            regularization,
+            alpha,
             trees: vec![],
         }
     }
@@ -62,7 +71,6 @@ impl UpliftRandomForestModel {
         self.fit_impl(n_threads, tx, data);
 
         for t in rx {
-            println!("tree fitted");
             self.trees.push(t);
         }
     }
@@ -78,9 +86,12 @@ impl UpliftRandomForestModel {
             self.max_features,
             EvalFunc::from(&self.eval_func),
             self.max_bins,
+            self.balance,
+            self.regularization,
+            self.alpha,
         );
         let pool = ThreadPool::new(num_threads as usize);
-        for _ in 0..2 {
+        for _ in 0..4 {
             let sender = tx.clone();
             let task_q = task_q.clone();
             let data = data.clone();
@@ -109,7 +120,7 @@ impl UpliftRandomForestModel {
         }
     }
 
-    pub fn predict(&self, data_file: String, mut n_threads: i32) -> Vec<f64> {
+    pub fn predict(&self, data_file: String, mut n_threads: i32) -> Vec<Vec<f64>> {
         if n_threads < 0 {
             n_threads = num_cpus::get() as i32;
         }
@@ -163,7 +174,9 @@ impl UpliftRandomForestModel {
                 res = preds
             } else {
                 for i in 0..res.len() {
-                    res[i] += preds[i];
+                    for j in 0..res[i].len() {
+                        res[i][j] += preds[i][j];
+                    }
                 }
             }
             count += 1;
@@ -171,7 +184,9 @@ impl UpliftRandomForestModel {
         assert!(count == self.n_estimators);
 
         for i in 0..res.len() {
-            res[i] /= self.n_estimators as f64;
+            for j in 0..res[i].len() {
+                res[i][j] /= self.n_estimators as f64;
+            }
         }
         res
     }

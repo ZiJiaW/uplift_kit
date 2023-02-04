@@ -1,15 +1,20 @@
 [package]
-name = "uplift_tree"
+name = "uplift_kit"
 version = "0.1.0"
 edition = "2021"
+
+[lib]
+name = "uplift_kit"
+crate-type = ["cdylib"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-polars = {version = "0.26.1", features = ["lazy", "parquet", "dtype-categorical", "performant", "ndarray", "rows"]}
+polars = {version = "0.26.1", features = ["lazy", "parquet", "performant", "rows"]}
 polars-plan = {version = "0.26.1"}
 rand = {version = "0.8.5"}
 mimalloc = { version = "*" }
 num_cpus = "1.0"
 concurrent-queue = "2.1.0"
 threadpool = "1.8.1"
+pyo3 = {version = "0.18.0", features=["extension-module", "abi3-py37"]}

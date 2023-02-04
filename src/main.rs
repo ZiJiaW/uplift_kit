@@ -7,8 +7,17 @@ use std::io::Write;
 fn main() {
     let train_data_file = "train.parquet";
     let test_data_file = "test.parquet";
-    let mut model =
-        uplift_random_forest::UpliftRandomForestModel::new(100, 10, 10, 100, "EC".to_string(), 16);
+    let mut model = uplift_random_forest::UpliftRandomForestModel::new(
+        10,
+        10,
+        10,
+        100,
+        "KL".to_string(),
+        10,
+        true,
+        true,
+        0.9,
+    );
     let tick = std::time::SystemTime::now();
     println!("start fitting!");
     model.fit(
@@ -25,7 +34,7 @@ fn main() {
     f.write(b"uplift\n").unwrap();
     f.write_all(
         res.iter()
-            .map(|v| v.to_string())
+            .map(|v| v[0].to_string())
             .collect::<Vec<String>>()
             .join("\n")
             .as_bytes(),
