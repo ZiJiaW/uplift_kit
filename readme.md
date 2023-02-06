@@ -13,11 +13,13 @@ Make sure Rust stable version is installed on your device. If not, follow the [ 
 Currently **uplift_kit** hasn't been published on *Pypi*, you can try it in a *pipenv* environment. And we use [maturin](https://github.com/PyO3/maturin) to build python package for Rust program.
 
 ```shell
-# you may install pipenv, maturin first
+# you may install pipenv and maturin first
 pip install pipenv
 pip install maturin
 # activate virtualenv in current dir
 pipenv shell
+# compile
+maturin develop --release
 ```
 
 Basic usage example: 
