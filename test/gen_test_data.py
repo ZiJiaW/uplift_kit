@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification
+import random
 
 
 def make_uplift_classification(
@@ -257,16 +258,20 @@ if __name__ == "__main__":
     )
     df["is_treated"] = (df.treatment_group_key == "t").astype(int)
     df["outcome"] = df["conversion"]
+    df["strcol"] = "0125"
+    x_names += ["strcol"]
+    for i in range(df.shape[0]):
+        df.loc[:, "strcol"].iloc[i] = random.choice(["none", "zijia", "0123", "0125"])
     df = df.sample(frac=1.0)
-    print(df.shape)
+    print(df.head())
     train_data = df[x_names + ["is_treated", "outcome"]].iloc[
         : int(df.shape[0] * 0.8), :
     ]
     test_data = df[x_names + ["is_treated", "outcome"]].iloc[
         int(df.shape[0] * 0.8) :, :
     ]
-    train_data.to_parquet("train.parquet", index=False)
-    test_data.to_parquet("test.parquet", index=False)
+    train_data.to_parquet("../train.parquet", index=False)
+    test_data.to_parquet("../test.parquet", index=False)
     print(train_data.shape)
     print(test_data.shape)
 # 45.11 --->  70.32

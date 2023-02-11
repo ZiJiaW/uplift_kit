@@ -2,6 +2,7 @@ use crate::uplift_tree::*;
 use concurrent_queue::ConcurrentQueue;
 use mimalloc::MiMalloc;
 use polars::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::{
     sync::mpsc::{self, Sender},
     thread,
@@ -10,6 +11,7 @@ use threadpool::ThreadPool;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+#[derive(Serialize, Deserialize)]
 pub struct UpliftRandomForestModel {
     n_estimators: i32,
     max_features: i32,
@@ -189,5 +191,23 @@ impl UpliftRandomForestModel {
             }
         }
         res
+    }
+
+    pub fn predict_row(&self, x: &Vec<AnyValue>) -> Vec<f64> {
+        let mut res = Vec::new();
+        for tree in &self.trees {
+            let preds = tree.predict_row(x);
+            if res.is_empty() {
+                res = preds;
+            } else {
+                for i in 0..res.len() {
+                    res[i] += preds[i]
+                }
+            }
+        }
+        for i in 0..res.len() {
+            res[i] /= self.n_estimators as f64;
+        }
+        return res;
     }
 }

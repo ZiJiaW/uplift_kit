@@ -7,15 +7,17 @@ use std::{
 use polars::frame::row::Row;
 use polars::prelude::*;
 use rand::seq::{IteratorRandom, SliceRandom};
+use serde::{Deserialize, Serialize};
 use threadpool::ThreadPool;
 
-#[derive(Debug, Clone, PartialEq)]
+use pyo3::prelude::FromPyObject;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum EvalFunc {
     Euclidiean,
     KL,
     Chi,
 }
-
 impl EvalFunc {
     pub fn from(s: &String) -> EvalFunc {
         match &s[..] {
@@ -27,8 +29,8 @@ impl EvalFunc {
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
-enum SplitValue {
+#[derive(PartialEq, Clone, Debug, Serialize, Deserialize, FromPyObject)]
+pub enum SplitValue {
     Numeric(f64),
     Str(String),
 }
@@ -47,9 +49,16 @@ impl SplitValue {
             _ => panic!("not str"),
         }
     }
+
+    pub fn to_any(&self) -> AnyValue<'static> {
+        match &self {
+            &SplitValue::Numeric(num) => AnyValue::Float64(*num),
+            &SplitValue::Str(s) => AnyValue::Utf8Owned(s.into()),
+        }
+    }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct TreeNode {
     pub col_name: String,
     pub col_idx: i32,
@@ -67,7 +76,7 @@ impl TreeNode {
         }
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpliftTreeModel {
     nodes: Vec<TreeNode>,
     max_depth: i32,
@@ -194,21 +203,12 @@ impl RawData {
     }
 }
 
+// DataSet is read only object
+#[derive(Clone)]
 pub struct DataSet {
-    // read only field
     raw_data: Arc<RawData>,
     index: Arc<Vec<usize>>,
 }
-
-impl Clone for DataSet {
-    fn clone(&self) -> Self {
-        return DataSet {
-            raw_data: self.raw_data.clone(),
-            index: self.index.clone(),
-        };
-    }
-}
-
 impl DataSet {
     pub fn from_parquet(data_file: String, treatment_col: String, outcome_col: String) -> DataSet {
         let raw_data = RawData::from_parquet(data_file, treatment_col, outcome_col);
@@ -433,7 +433,6 @@ impl UpliftTreeModel {
             &EvalFunc::Euclidiean => ed,
             &EvalFunc::KL => kl,
             &EvalFunc::Chi => chi,
-            _ => panic!("bad eval func"),
         };
 
         let mut score = 0.;
@@ -650,7 +649,7 @@ impl UpliftTreeModel {
         let mut result = Vec::with_capacity(data_len);
         for i in 0..data_len {
             data.get_row_amortized(i, row)?;
-            result.push(self.classify(&row.0));
+            result.push(self.predict_row(&row.0));
         }
         Ok(result)
     }
@@ -662,7 +661,7 @@ impl UpliftTreeModel {
         let mut result = Vec::with_capacity(data_len);
         for i in 0..data_len {
             data.get_row_amortized(i, row)?;
-            result.push(self.classify(&row.0));
+            result.push(self.predict_row(&row.0));
         }
         Ok(result)
     }
@@ -671,7 +670,7 @@ impl UpliftTreeModel {
         self.feature_cols.clone()
     }
 
-    fn classify(&self, x: &Vec<AnyValue>) -> Vec<f64> {
+    pub fn predict_row(&self, x: &Vec<AnyValue>) -> Vec<f64> {
         let mut cur_idx = 0;
         let nodes = &self.nodes;
         let mut cur_node = &nodes[cur_idx];
@@ -679,7 +678,9 @@ impl UpliftTreeModel {
             let cur_value = &x[cur_node.col_idx as usize];
             let going_left = match &cur_node.split_value {
                 SplitValue::Numeric(v) => cur_value.try_extract::<f64>().unwrap() <= *v,
-                SplitValue::Str(v) => *cur_value == AnyValue::Utf8(v),
+                SplitValue::Str(v) => {
+                    *cur_value == AnyValue::Utf8(v) || *cur_value == AnyValue::Utf8Owned(v.into())
+                }
             };
             cur_node = if going_left {
                 cur_idx = 2 * cur_idx + 1;

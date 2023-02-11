@@ -1,15 +1,20 @@
-use pyo3::prelude::*;
+use pyo3::{prelude::*, types::PyList};
 mod uplift_random_forest;
 mod uplift_tree;
+use std::{fs::{File, self}, io::Write};
+use uplift_random_forest::UpliftRandomForestModel;
+use uplift_tree::SplitValue;
 
 #[pyclass(name = "UpliftRandomForestModel")]
 struct _UpliftRandomForestModel {
-    inner_model: uplift_random_forest::UpliftRandomForestModel,
+    inner_model: UpliftRandomForestModel,
 }
 
 #[pymethods]
 impl _UpliftRandomForestModel {
     #[new]
+    #[pyo3(signature = (n_estimators = 10, max_features = 10, max_depth = 6, min_sample_leaf = 100, 
+        eval_func="ED".to_string(), max_bins=10, balance=true, regularization=true, alpha=0.9))]
     fn new(
         n_estimators: i32,
         max_features: i32,
@@ -22,7 +27,7 @@ impl _UpliftRandomForestModel {
         alpha: f64,
     ) -> _UpliftRandomForestModel {
         _UpliftRandomForestModel {
-            inner_model: uplift_random_forest::UpliftRandomForestModel::new(
+            inner_model: UpliftRandomForestModel::new(
                 n_estimators,
                 max_features,
                 max_depth,
@@ -34,6 +39,12 @@ impl _UpliftRandomForestModel {
                 alpha,
             ),
         }
+    }
+
+    fn load(&mut self, path: String) {
+        let json_string = fs::read_to_string(path).unwrap();
+        let model = serde_json::from_str(&json_string).unwrap();
+        self.inner_model = model;
     }
 
     fn fit(
@@ -50,10 +61,21 @@ impl _UpliftRandomForestModel {
     fn predict(&self, data_file: String, n_threads: i32) -> Vec<Vec<f64>> {
         self.inner_model.predict(data_file, n_threads)
     }
+
+    fn predict_row(&self, x: &PyList) -> Vec<f64> {
+        let row: Vec<SplitValue> = x.extract().unwrap();
+        self.inner_model.predict_row(&row.iter().map(|v| v.to_any()).collect())
+    }
+
+    fn save(&self, path: String) {
+        let json_model = serde_json::to_string(&self.inner_model).unwrap();
+        let mut f = File::create(path).unwrap();
+        f.write_all(json_model.as_bytes()).unwrap();
+    }
 }
 
 #[pymodule]
-fn uplift_kit(py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn uplift_kit(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<_UpliftRandomForestModel>()?;
     Ok(())
 }

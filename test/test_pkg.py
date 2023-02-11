@@ -14,12 +14,14 @@ model = uplift_kit.UpliftRandomForestModel(
 )
 
 model.fit(
-    data_file="train.parquet",
+    data_file="../train.parquet",
     treatment_col="is_treated",
     outcome_col="outcome",
     n_threads=8,
 )
 
-res = model.predict(data_file="test.parquet", n_threads=8)
+res = model.predict(data_file="../test.parquet", n_threads=8)
 
 print(res[:10])
+
+model.save("model.json")
