@@ -5,7 +5,7 @@ use std::{fs::{File, self}, io::Write};
 use uplift_random_forest::UpliftRandomForestModel;
 use uplift_tree::SplitValue;
 
-#[pyclass(name = "UpliftRandomForestModel")]
+#[pyclass(name = "_UpliftRandomForestModel")]
 struct _UpliftRandomForestModel {
     inner_model: UpliftRandomForestModel,
 }
@@ -14,7 +14,7 @@ struct _UpliftRandomForestModel {
 impl _UpliftRandomForestModel {
     #[new]
     #[pyo3(signature = (n_estimators = 10, max_features = 10, max_depth = 6, min_sample_leaf = 100, 
-        eval_func="ED".to_string(), max_bins=10, balance=true, regularization=true, alpha=0.9))]
+        eval_func="ED".to_string(), max_bins=10, balance=false, regularization=true, alpha=0.9))]
     fn new(
         n_estimators: i32,
         max_features: i32,

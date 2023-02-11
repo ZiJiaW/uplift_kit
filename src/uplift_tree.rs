@@ -21,7 +21,7 @@ pub enum EvalFunc {
 impl EvalFunc {
     pub fn from(s: &String) -> EvalFunc {
         match &s[..] {
-            "EC" => EvalFunc::Euclidiean,
+            "ED" => EvalFunc::Euclidiean,
             "KL" => EvalFunc::KL,
             "CHI" => EvalFunc::Chi,
             &_ => panic!("bad eval func"),
@@ -631,27 +631,6 @@ impl UpliftTreeModel {
             // cur node is a leaf
             nodes[cur_idx].prob = cur_prob;
         }
-    }
-
-    pub fn predict(&self, data_file: String) -> Result<Vec<Vec<f64>>, PolarsError> {
-        let data = LazyFrame::scan_parquet(data_file, Default::default())?
-            .select(
-                &self
-                    .feature_cols
-                    .iter()
-                    .map(|f| col(f))
-                    .collect::<Vec<Expr>>(),
-            )
-            .collect()?;
-        assert!(data.shape().1 == self.feature_cols.len());
-        let data_len = data.shape().0;
-        let row = &mut Row::new(vec![AnyValue::Float64(0.); self.feature_cols.len()]);
-        let mut result = Vec::with_capacity(data_len);
-        for i in 0..data_len {
-            data.get_row_amortized(i, row)?;
-            result.push(self.predict_row(&row.0));
-        }
-        Ok(result)
     }
 
     pub fn predict_frame(&self, data: &DataFrame) -> Result<Vec<Vec<f64>>, PolarsError> {

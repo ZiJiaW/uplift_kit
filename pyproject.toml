@@ -11,3 +11,8 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
+
+dependencies = [
+    'pandas >= 1.0',
+    'pyarrow >= 10.0'
+]

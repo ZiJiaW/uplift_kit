@@ -1,5 +1,8 @@
 /target
+.vscode
 *.parquet
 *.csv
 *.ipynb
 *.json
+*.pyd
+__pycache__/
