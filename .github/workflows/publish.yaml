@@ -1,0 +1,34 @@
+name: publish
+run-name: publish
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  many-linux-x86-64:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish wheel
+        uses: PyO3/maturin-action@v1
+        env: 
+          MATURIN_PASSWORD: ${{ secrets.PYPI_PUBLISH_TOKEN }}
+        with:
+          command: publish
+  windows-x86-64:
+    runs-on: windows-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish wheel
+        uses: PyO3/maturin-action@v1
+        env: 
+          MATURIN_PASSWORD: ${{ secrets.PYPI_PUBLISH_TOKEN }}
+        with:
+          command: publish

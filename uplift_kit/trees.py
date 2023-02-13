@@ -9,7 +9,7 @@ class UpliftRandomForestModel:
         self,
         n_estimators=10,
         max_features=10,
-        max_depth=6,
+        max_depth=8,
         min_sample_leaf=100,
         eval_func="ED",
         max_bins=10,
