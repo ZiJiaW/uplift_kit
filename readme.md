@@ -8,48 +8,72 @@ So I implement the UpliftRandomForest algorithm in Rust and provide a python API
 
 ## Usage
 
-Make sure Rust stable version is installed on your device. If not, follow the [ installation guide](https://www.rust-lang.org/tools/install) to get stable Rust.
+[uplift-kit](https://pypi.org/project/uplift-kit/) has been published on *pypi*, use `pip install uplift-kit` to install.
 
-Currently **uplift_kit** hasn't been published on *Pypi*, you can try it in a *pipenv* environment. And we use [maturin](https://github.com/PyO3/maturin) to build python package for Rust program.
-
-```shell
-# you may install pipenv and maturin first
-pip install pipenv
-pip install maturin
-# activate virtualenv in current dir
-pipenv shell
-# compile
-maturin develop --release
-```
-
-Basic usage example: 
+### Basic usage example 
 
 ```python
-import uplift_kit
+from uplift_kit.trees import UpliftRandomForestModel
+import pandas as pd
 
-model = uplift_kit.UpliftRandomForestModel(
-    n_estimators=10,
-    max_features=10,
-    max_depth=10,
-    min_sample_leaf=100,
-    eval_func="KL",
-    max_bins=10,
-    balance=True,
-    regularization=True,
-    alpha=0.9,
+model = UpliftRandomForestModel(
+    n_estimators=10,      # number of uplift trees
+    max_features=10,      # maximum number of features considered in one split
+    max_depth=10,         # maximum depth of one single tree
+    min_sample_leaf=100,  # minumum number of samples classified to a leaf
+    eval_func="ED",       # split evaluation function, support `ED, KL, CHI`
+    max_bins=10,          # maximum bins considered when calculating best split
+    balance=False,        # whether to use weighted average to calculate score, False mean not
+    regularization=True,  # whether to add regularization term
+    alpha=0.9,            # param for the regularization term
 )
 
+data = pd.read_parquet("../train.parquet")
+x_names = list(data.columns[:-2])
+
+# model will use columns of `x_names` as features
+# treatment_col should contains 0,1,2,...k, where 0 indicates control sample, 1~k means treatment 1~k.
+# outcome_col should only contains 0,1 as integer values, i.e. binary outcome.
 model.fit(
-    data_file="train.parquet",
-    treatment_col="is_treated",
+    data,
+    x_names=x_names,
+    treatment_col="treats",
     outcome_col="outcome",
     n_threads=8,
 )
 
-res = model.predict(data_file="test.parquet", n_threads=8)
+# In prediction, model will automatically choose the feature columns (x_names) from input dataframe. 
+# It returns a numpy array, where k columns per sample indicate the uplift value for treatment k.
+test = pd.read_parquet("../test.parquet")
+res = model.predict(data=test, n_threads=8)
 print(res[:10])
 ```
 
-Currently we can only use parquet files for train and predict, values in `treatment_col` must be `[0,1,2...]`, where `0` represents control sample, `[1,2...k]` indicates *k* types of treatment. `outcome_col` indicates the outcome of treatments/control, must be 0/1 (binary outcome). 
+Values in `treatment_col` must be `[0,1,2...]`, where `0` specifically represents control sample and `[1,2...k]` indicates *k* types of treatment. 
 
-The `predict` method returns the uplift value of each treatment as a `List[List[float]]`. `res[i][k]` represents the uplift value for item `i` with treatment `k`.
+Values in `outcome_col` indicates the outcome of treatments/control, must be 0/1 (binary outcome). 
+
+Values in `x_names` columns can be either numeric or categorical (`str` values). Model will handle both properly.
+
+The `predict` method returns the uplift value of each treatment as a `np.array` of shape `(n_samples, k)`. `res[i][k]` represents the uplift value for item `i` of treatment `k`.
+
+### Other usage
+
+You can `save` a trained model and `load` it else where for prediction.
+
+```python
+model.fit(...)
+model.save("saved_model.json")
+
+new_model = UpliftRandomForestModel()
+new_model.load("saved_model.json")
+new_model.predict(...)
+```
+
+In basic example, the `predict` function used multi-thread for predicting a large dataset. However, the `predict_row` function is suitable for predicting one single sample:
+
+```python
+res = model.predict_row([1,2,"ASIA",...]) # input a list of features, consistent with `x_names`
+```
+
+`res` will be a list of `k` uplift values for `k` treatments.
