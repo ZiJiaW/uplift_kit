@@ -2,6 +2,7 @@ from __future__ import annotations
 from uplift_kit.uplift_kit import _UpliftRandomForestModel
 import pandas as pd
 import tempfile
+import numpy as np
 
 
 class UpliftRandomForestModel:
@@ -77,6 +78,7 @@ class UpliftRandomForestModel:
 
         """
         truncated_data = data[x_names + [treatment_col, outcome_col]]
+        print("Loading data...")
         with tempfile.TemporaryDirectory() as tmpdir:
             train_path = tmpdir + "/tmp_train.parquet"
             truncated_data.to_parquet(train_path)
@@ -87,7 +89,7 @@ class UpliftRandomForestModel:
                 n_threads=n_threads,
             )
 
-    def predict(self, data: pd.DataFrame, n_threads: int = -1) -> list[list]:
+    def predict(self, data: pd.DataFrame, n_threads: int = -1) -> np.array:
         """
         Predict for a data frame. Threads will be created to speed up prediction, so this function is suitable for processing large data. For small data, use `predict_row` instead.
 
@@ -102,4 +104,4 @@ class UpliftRandomForestModel:
             predict_path = tmpdir + "/tmp_predict.parquet"
             data.to_parquet(predict_path)
             result = self.__model.predict(predict_path, n_threads)
-        return result
+        return np.array(result)

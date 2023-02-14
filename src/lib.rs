@@ -1,7 +1,10 @@
 use pyo3::{prelude::*, types::PyList};
 mod uplift_random_forest;
 mod uplift_tree;
-use std::{fs::{File, self}, io::Write};
+use std::{
+    fs::{self, File},
+    io::Write,
+};
 use uplift_random_forest::UpliftRandomForestModel;
 use uplift_tree::SplitValue;
 
@@ -13,8 +16,6 @@ struct _UpliftRandomForestModel {
 #[pymethods]
 impl _UpliftRandomForestModel {
     #[new]
-    #[pyo3(signature = (n_estimators = 10, max_features = 10, max_depth = 6, min_sample_leaf = 100, 
-        eval_func="ED".to_string(), max_bins=10, balance=false, regularization=true, alpha=0.9))]
     fn new(
         n_estimators: i32,
         max_features: i32,
@@ -64,7 +65,8 @@ impl _UpliftRandomForestModel {
 
     fn predict_row(&self, x: &PyList) -> Vec<f64> {
         let row: Vec<SplitValue> = x.extract().unwrap();
-        self.inner_model.predict_row(&row.iter().map(|v| v.to_any()).collect())
+        self.inner_model
+            .predict_row(&row.iter().map(|v| v.to_any()).collect())
     }
 
     fn save(&self, path: String) {

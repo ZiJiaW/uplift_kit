@@ -1,7 +1,7 @@
 name: publish
 run-name: ${{ github.actor }} is publishing
 on:
-  push:
+  pull-request:
     branches:
       - main
 
@@ -34,3 +34,4 @@ jobs:
           MATURIN_PASSWORD: ${{ secrets.PYPI_PUBLISH_TOKEN }}
         with:
           command: publish
+          args: --no-sdist

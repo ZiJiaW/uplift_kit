@@ -6,3 +6,5 @@
 *.json
 *.pyd
 __pycache__/
+Pipfile
+Pipfile.lock
