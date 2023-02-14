@@ -4,10 +4,12 @@ use mimalloc::MiMalloc;
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
+    io::Write,
     sync::mpsc::{self, Sender},
     thread,
 };
 use threadpool::ThreadPool;
+
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
@@ -70,6 +72,8 @@ impl UpliftRandomForestModel {
         self.outcome_col = outcome_col;
         let (tx, rx) = mpsc::channel();
 
+        println!("Training starts...");
+        std::io::stdout().flush().unwrap();
         self.fit_impl(n_threads, tx, data);
 
         for t in rx {
@@ -93,7 +97,9 @@ impl UpliftRandomForestModel {
             self.alpha,
         );
         let pool = ThreadPool::new(num_threads as usize);
-        for _ in 0..4 {
+        let tree_parallel_num =
+            2.max(1 + f64::ceil(num_threads as f64 / self.max_features as f64) as usize);
+        for _ in 0..tree_parallel_num {
             let sender = tx.clone();
             let task_q = task_q.clone();
             let data = data.clone();
@@ -105,7 +111,7 @@ impl UpliftRandomForestModel {
                 match task_q.pop() {
                     Ok(tree_id) => {
                         let mut cur_tree = tree.clone();
-                        println!("Start fitting tree id = {}", tree_id);
+                        println!("Fitting tree {}...", tree_id);
                         cur_tree.fit(
                             data.clone(),
                             treatment_col.clone(),
