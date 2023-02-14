@@ -1,7 +1,7 @@
 name: publish
 run-name: ${{ github.actor }} is publishing
 on:
-  pull-request:
+  pull_request:
     branches:
       - main
 
