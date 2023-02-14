@@ -53,7 +53,7 @@ class UpliftRandomForestModel:
 
         return: uplift value for each treatment.
         """
-        return self.__model.predict_row(row)
+        return np.array(self.__model.predict_row(row))
 
     def fit(
         self,
