@@ -2,9 +2,9 @@ use crate::uplift_tree::*;
 use concurrent_queue::ConcurrentQueue;
 use mimalloc::MiMalloc;
 use polars::prelude::*;
+use pyo3::Python;
 use serde::{Deserialize, Serialize};
 use std::{
-    io::Write,
     sync::mpsc::{self, Sender},
     thread,
 };
@@ -27,6 +27,16 @@ pub struct UpliftRandomForestModel {
     regularization: bool,
     alpha: f64,
     trees: Vec<UpliftTreeModel>,
+}
+
+fn pyprint<S: AsRef<str>>(line: S) {
+    let code = format!(
+        "import sys; print(\"{}\"); sys.stdout.flush();",
+        line.as_ref()
+    );
+    Python::with_gil(|py| {
+        Python::run(py, &code, None, None).unwrap();
+    });
 }
 
 impl UpliftRandomForestModel {
@@ -72,12 +82,12 @@ impl UpliftRandomForestModel {
         self.outcome_col = outcome_col;
         let (tx, rx) = mpsc::channel();
 
-        println!("Training starts...");
-        std::io::stdout().flush().unwrap();
+        pyprint(format!("Start training with {} threads...", n_threads));
         self.fit_impl(n_threads, tx, data);
 
         for t in rx {
             self.trees.push(t);
+            pyprint(format!("Tree [{}] is finished!", self.trees.len()));
         }
     }
 
@@ -109,9 +119,8 @@ impl UpliftRandomForestModel {
             let outcome_col = self.outcome_col.clone();
             thread::spawn(move || loop {
                 match task_q.pop() {
-                    Ok(tree_id) => {
+                    Ok(_) => {
                         let mut cur_tree = tree.clone();
-                        println!("Fitting tree {}...", tree_id);
                         cur_tree.fit(
                             data.clone(),
                             treatment_col.clone(),
