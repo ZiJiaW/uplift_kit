@@ -21,6 +21,19 @@ res = model.predict(data=test, n_threads=8)
 
 print(res[:10])
 
+row = list(test.iloc[5, :].values)
+
+print(row)
+
+print(model.predict_row(row))
+
+model.save("model.json")
+
+newmodel = UpliftRandomForestModel()
+newmodel.load("model.json")
+
+print(newmodel.predict_row(row))
+
 # res = model.predict(data_file="../test.parquet", n_threads=8)
 
 # print(res[:10])

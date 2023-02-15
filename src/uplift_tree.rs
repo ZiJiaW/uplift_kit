@@ -668,9 +668,7 @@ impl UpliftTreeModel {
             let cur_value = &x[cur_node.col_idx as usize];
             let going_left = match &cur_node.split_value {
                 SplitValue::Numeric(v) => cur_value.try_extract::<f64>().unwrap() <= *v,
-                SplitValue::Str(v) => {
-                    *cur_value == AnyValue::Utf8(v) || *cur_value == AnyValue::Utf8Owned(v.into())
-                }
+                SplitValue::Str(v) => cur_value.get_str().unwrap() == v,
             };
             cur_node = if going_left {
                 cur_idx = 2 * cur_idx + 1;
