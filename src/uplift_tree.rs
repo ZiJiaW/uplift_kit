@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use lockfree_object_pool::{LinearObjectPool, LinearOwnedReusable};
 use polars::frame::row::Row;
 use polars::prelude::*;
 use rand::seq::{IteratorRandom, SliceRandom};
@@ -14,14 +15,14 @@ use pyo3::prelude::FromPyObject;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum EvalFunc {
-    Euclidiean,
+    Euclidean,
     KL,
     Chi,
 }
 impl EvalFunc {
     pub fn from(s: &String) -> EvalFunc {
         match &s[..] {
-            "ED" => EvalFunc::Euclidiean,
+            "ED" => EvalFunc::Euclidean,
             "KL" => EvalFunc::KL,
             "CHI" => EvalFunc::Chi,
             &_ => panic!("bad eval func"),
@@ -204,21 +205,29 @@ impl RawData {
 }
 
 // DataSet is read only object
+// use object pool to allocate index array
 #[derive(Clone)]
 pub struct DataSet {
     raw_data: Arc<RawData>,
-    index: Arc<Vec<usize>>,
+    index: Arc<LinearOwnedReusable<Vec<usize>>>,
+    index_pool: Arc<LinearObjectPool<Vec<usize>>>,
 }
 impl DataSet {
     pub fn from_parquet(data_file: String, treatment_col: String, outcome_col: String) -> DataSet {
         let raw_data = RawData::from_parquet(data_file, treatment_col, outcome_col);
-        let mut index = Vec::with_capacity(raw_data.n_rows());
+        let index_pool = Arc::new(LinearObjectPool::new(
+            || Vec::<usize>::with_capacity(1024),
+            |v| v.clear(),
+        ));
+        let mut index = index_pool.pull_owned();
+        index.reserve(raw_data.n_rows());
         for i in 0..raw_data.n_rows() {
             index.push(i);
         }
         DataSet {
             raw_data: Arc::new(raw_data),
             index: Arc::new(index),
+            index_pool,
         }
     }
 
@@ -279,8 +288,8 @@ impl DataSet {
 
     fn split_set(&self, f: &String, v: SplitValue) -> (DataSet, DataSet) {
         let col_idx = *self.raw_data.idx_map.get(f).unwrap();
-        let mut left_idx = Vec::with_capacity(self.index.len() / 2);
-        let mut right_idx = Vec::with_capacity(self.index.len() / 2);
+        let mut left_idx = self.index_pool.pull_owned();
+        let mut right_idx = self.index_pool.pull_owned();
         for &i in self.index.iter() {
             if col_idx >= 0 {
                 if self.raw_data.numeric_cols[col_idx as usize][i] <= v.extract_f() {
@@ -298,12 +307,14 @@ impl DataSet {
         }
         return (
             DataSet {
-                raw_data: Arc::clone(&self.raw_data),
+                raw_data: self.raw_data.clone(),
                 index: Arc::new(left_idx),
+                index_pool: self.index_pool.clone(),
             },
             DataSet {
-                raw_data: Arc::clone(&self.raw_data),
+                raw_data: self.raw_data.clone(),
                 index: Arc::new(right_idx),
+                index_pool: self.index_pool.clone(),
             },
         );
     }
@@ -430,7 +441,7 @@ impl UpliftTreeModel {
         let k = v.len() / 2 - 1;
 
         let func = match eval {
-            &EvalFunc::Euclidiean => ed,
+            &EvalFunc::Euclidean => ed,
             &EvalFunc::KL => kl,
             &EvalFunc::Chi => chi,
         };
@@ -582,7 +593,7 @@ impl UpliftTreeModel {
                             left.n_rows(),
                             data.n_rows(),
                             alpha,
-                            eval == EvalFunc::Euclidiean,
+                            eval == EvalFunc::Euclidean,
                         );
                     }
                     best_split.lock().unwrap().exchange(
