@@ -1,6 +1,7 @@
 use pyo3::{prelude::*, types::PyList};
 mod uplift_random_forest;
 mod uplift_tree;
+use std::collections::HashMap;
 use std::{
     fs::{self, File},
     io::Write,
@@ -50,23 +51,26 @@ impl _UpliftRandomForestModel {
 
     fn fit(
         &mut self,
-        data_file: String,
+        data: HashMap<String, &PyList>,
+        x_names: Vec<String>,
         treatment_col: String,
         outcome_col: String,
         n_threads: i32,
     ) {
+        // columns: xnames + treatment + outcome
         self.inner_model
-            .fit(data_file, treatment_col, outcome_col, n_threads);
+            .fit(data, x_names, treatment_col, outcome_col, n_threads);
     }
 
-    fn predict(&self, data_file: String, n_threads: i32) -> Vec<Vec<f64>> {
-        self.inner_model.predict(data_file, n_threads)
+    fn predict(&self, data: Vec<&PyList>, n_threads: i32) -> Vec<Vec<f64>> {
+        // self.inner_model.predict(data, n_threads)
+        let rows: Vec<Vec<SplitValue>> = data.iter().map(|r| r.extract().unwrap()).collect();
+        self.inner_model.predict_rows(rows, n_threads)
     }
 
     fn predict_row(&self, x: &PyList) -> Vec<f64> {
         let row: Vec<SplitValue> = x.extract().unwrap();
-        self.inner_model
-            .predict_row(&row.iter().map(|v| v.to_any()).collect())
+        self.inner_model.predict_row(&row)
     }
 
     fn save(&self, path: String) {

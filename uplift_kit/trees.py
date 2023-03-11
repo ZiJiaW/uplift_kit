@@ -3,6 +3,7 @@ from uplift_kit.uplift_kit import _UpliftRandomForestModel
 import pandas as pd
 import tempfile
 import numpy as np
+from pandas.api.types import is_integer_dtype, is_string_dtype, is_numeric_dtype
 
 
 class UpliftRandomForestModel:
@@ -79,29 +80,27 @@ class UpliftRandomForestModel:
         """
         truncated_data = data[x_names + [treatment_col, outcome_col]]
         print("Loading data...")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            train_path = tmpdir + "/tmp_train.parquet"
-            truncated_data.to_parquet(train_path)
-            self.__model.fit(
-                data_file=train_path,
-                treatment_col=treatment_col,
-                outcome_col=outcome_col,
-                n_threads=n_threads,
-            )
+        if not is_integer_dtype(truncated_data[treatment_col]):
+            truncated_data[treatment_col] = truncated_data[treatment_col].astype(int)
+            print("Treatment column is not integer type, conversion done.")
+        if not is_integer_dtype(truncated_data[outcome_col]):
+            truncated_data[outcome_col] = truncated_data[outcome_col].astype(int)
+            print("Outcome column is not integer type, conversion done.")
+        data_dict = {}
+        for col in x_names + [treatment_col, outcome_col]:
+            data_dict[col] = truncated_data[col].values.tolist()
+        self.__model.fit(data_dict, x_names, treatment_col, outcome_col, n_threads)
 
     def predict(self, data: pd.DataFrame, n_threads: int = -1) -> np.array:
         """
         Predict for a data frame. Threads will be created to speed up prediction, so this function is suitable for processing large data. For small data, use `predict_row` instead.
 
-        param `data`: feature columns, should be consistent with `x_names`.
+        param `data`: feature data, columns should be consistent with `x_names`.
 
         param `n_threads`: num of threads to be used.
 
         return: uplift value for each treatment per sample.
 
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
-            predict_path = tmpdir + "/tmp_predict.parquet"
-            data.to_parquet(predict_path)
-            result = self.__model.predict(predict_path, n_threads)
-        return np.array(result)
+
+        return self.__model.predict(data.values.tolist(), n_threads)

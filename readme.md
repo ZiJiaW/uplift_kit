@@ -45,7 +45,7 @@ model.fit(
 # In prediction, model will automatically choose the feature columns (x_names) from input dataframe. 
 # It returns a numpy array, where k columns per sample indicate the uplift value for treatment k.
 test = pd.read_parquet("../test.parquet")
-res = model.predict(data=test, n_threads=8)
+res = model.predict(data=test[x_names], n_threads=8)
 print(res[:10])
 ```
 
@@ -70,7 +70,7 @@ new_model.load("saved_model.json")
 new_model.predict(...)
 ```
 
-In basic example, the `predict` function used multi-thread for predicting a large dataset. However, the `predict_row` function is suitable for predicting one single sample:
+In basic example, the `predict` function used multi-thread for predicting a large dataset in default. However, the `predict_row` function is suitable for predicting one single sample:
 
 ```python
 res = model.predict_row([1,2,"ASIA",...]) # input a list of features, consistent with `x_names`
