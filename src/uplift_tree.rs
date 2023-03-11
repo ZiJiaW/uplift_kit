@@ -5,13 +5,12 @@ use std::{
 };
 
 use lockfree_object_pool::{LinearObjectPool, LinearOwnedReusable};
-use polars::frame::row::Row;
-use polars::prelude::*;
 use rand::seq::{IteratorRandom, SliceRandom};
 use serde::{Deserialize, Serialize};
 use threadpool::ThreadPool;
 
 use pyo3::prelude::FromPyObject;
+use pyo3::types::PyList;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum EvalFunc {
@@ -48,13 +47,6 @@ impl SplitValue {
         match self {
             SplitValue::Str(v) => v,
             _ => panic!("not str"),
-        }
-    }
-
-    pub fn to_any(&self) -> AnyValue<'static> {
-        match &self {
-            &SplitValue::Numeric(num) => AnyValue::Float64(*num),
-            &SplitValue::Str(s) => AnyValue::Utf8Owned(s.into()),
         }
     }
 }
@@ -105,97 +97,44 @@ struct RawData {
 }
 
 impl RawData {
-    pub fn from_parquet(data_file: String, treatment_col: String, outcome_col: String) -> RawData {
-        let data = LazyFrame::scan_parquet(data_file, Default::default())
-            .unwrap()
-            .collect()
-            .unwrap();
-        let mut str_cols: Vec<String> = Vec::new();
-        let mut numeric_cols: Vec<String> = Vec::new();
-
-        let feature_cols = data
-            .get_column_names_owned()
-            .iter()
-            .filter(|&x| *x != treatment_col && *x != outcome_col)
-            .map(|x| x.to_owned())
-            .collect::<Vec<String>>();
-
-        let schema = data.schema();
-        for f in &feature_cols {
-            let tp = schema.get(f).unwrap();
-            if *tp == DataType::Utf8 {
-                str_cols.push(f.to_string());
-            } else if !tp.is_numeric() {
-                panic!("Only numeric and string features!")
-            } else {
-                numeric_cols.push(f.to_string())
-            }
-        }
-
-        let mut data = data.lazy();
-        for f in &numeric_cols {
-            if *schema.get(f).unwrap() != DataType::Float64 {
-                data = data.with_column(col(f).cast(DataType::Float64))
-            }
-        }
-        data = data.with_column(col(&treatment_col).cast(DataType::Int32));
-        data = data.with_column(col(&outcome_col).cast(DataType::Int32));
-        let data = data.collect().unwrap();
-
+    pub fn from_pylist(
+        data: HashMap<String, &PyList>,
+        x_names: Vec<String>,
+        treatment_col: String,
+        outcome_col: String,
+    ) -> RawData {
         let mut raw_data = RawData {
             string_cols: Vec::new(),
             numeric_cols: Vec::new(),
             idx_map: HashMap::new(),
             treatment_col: Vec::new(),
             outcome_col: Vec::new(),
-            x_names: feature_cols.clone(),
+            x_names: x_names.clone(),
             n_treatments: 0,
         };
-        let schema = data.schema();
-        for f in &numeric_cols {
-            assert!(schema.get(f).unwrap().is_numeric());
-            raw_data.numeric_cols.push(
-                data.column(f)
-                    .unwrap()
-                    .iter()
-                    .map(|v| v.try_extract().unwrap())
-                    .collect(),
-            );
-            raw_data
-                .idx_map
-                .insert(f.clone(), raw_data.numeric_cols.len() as i32 - 1);
-        }
-        for f in &str_cols {
-            raw_data.string_cols.push(
-                data.column(f)
-                    .unwrap()
-                    .iter()
-                    .map(|v| match v {
-                        AnyValue::Utf8(s) => s.to_string(),
-                        _ => panic!("bad utf8 column"),
-                    })
-                    .collect(),
-            );
-            raw_data
-                .idx_map
-                .insert(f.clone(), -(raw_data.string_cols.len() as i32));
+
+        for f in &x_names {
+            if let Ok(f_col) = data.get(f).unwrap().extract::<Vec<f64>>() {
+                raw_data.numeric_cols.push(f_col);
+                raw_data
+                    .idx_map
+                    .insert(f.clone(), raw_data.numeric_cols.len() as i32 - 1);
+                continue;
+            }
+            if let Ok(f_col) = data.get(f).unwrap().extract::<Vec<String>>() {
+                raw_data.string_cols.push(f_col);
+                raw_data
+                    .idx_map
+                    .insert(f.clone(), -(raw_data.string_cols.len() as i32));
+                continue;
+            }
+            panic!("BAD type of column: {}", f);
         }
 
-        raw_data.treatment_col = data
-            .column(&treatment_col)
-            .unwrap()
-            .iter()
-            .map(|v| v.try_extract().unwrap())
-            .collect();
-
+        raw_data.treatment_col = data.get(&treatment_col).unwrap().extract().unwrap();
+        raw_data.outcome_col = data.get(&outcome_col).unwrap().extract().unwrap();
         raw_data.n_treatments = *raw_data.treatment_col.iter().max().unwrap() as i32;
 
-        raw_data.outcome_col = data
-            .column(&outcome_col)
-            .unwrap()
-            .iter()
-            .map(|v| v.try_extract().unwrap())
-            .collect();
         raw_data
     }
 
@@ -213,8 +152,17 @@ pub struct DataSet {
     index_pool: Arc<LinearObjectPool<Vec<usize>>>,
 }
 impl DataSet {
-    pub fn from_parquet(data_file: String, treatment_col: String, outcome_col: String) -> DataSet {
-        let raw_data = RawData::from_parquet(data_file, treatment_col, outcome_col);
+    pub fn from_pylist(
+        data: HashMap<String, &PyList>,
+        x_names: Vec<String>,
+        treatment_col: String,
+        outcome_col: String,
+    ) -> DataSet {
+        let raw_data = RawData::from_pylist(data, x_names, treatment_col, outcome_col);
+        DataSet::from_raw_data(raw_data)
+    }
+
+    fn from_raw_data(raw_data: RawData) -> DataSet {
         let index_pool = Arc::new(LinearObjectPool::new(
             || Vec::<usize>::with_capacity(1024),
             |v| v.clear(),
@@ -644,33 +592,24 @@ impl UpliftTreeModel {
         }
     }
 
-    pub fn predict_frame(&self, data: &DataFrame) -> Result<Vec<Vec<f64>>, PolarsError> {
-        assert!(data.shape().1 == self.feature_cols.len());
-        let data_len = data.shape().0;
-        let row = &mut Row::new(vec![AnyValue::Float64(0.); self.feature_cols.len()]);
-        let mut result = Vec::with_capacity(data_len);
-        for i in 0..data_len {
-            data.get_row_amortized(i, row)?;
-            result.push(self.predict_row(&row.0));
+    pub fn predict_rows(&self, data: &Vec<Vec<SplitValue>>) -> Vec<Vec<f64>> {
+        assert!(data[0].len() == self.feature_cols.len());
+        let mut result = Vec::with_capacity(data.len());
+        for row in data {
+            result.push(self.predict_row(row));
         }
-        Ok(result)
+        result
     }
 
-    pub fn feature_cols(&self) -> Vec<String> {
-        self.feature_cols.clone()
-    }
-
-    pub fn predict_row(&self, x: &Vec<AnyValue>) -> Vec<f64> {
+    pub fn predict_row(&self, x: &Vec<SplitValue>) -> Vec<f64> {
         let mut cur_idx = 0;
         let nodes = &self.nodes;
         let mut cur_node = &nodes[cur_idx];
         while cur_node.prob.is_empty() {
             let cur_value = &x[cur_node.col_idx as usize];
             let going_left = match &cur_node.split_value {
-                SplitValue::Numeric(v) => cur_value.try_extract::<f64>().unwrap() <= *v,
-                SplitValue::Str(v) => {
-                    *cur_value == AnyValue::Utf8(v) || *cur_value == AnyValue::Utf8Owned(v.into())
-                }
+                SplitValue::Numeric(v) => cur_value.extract_f() <= *v,
+                SplitValue::Str(v) => cur_value.extract_s() == v,
             };
             cur_node = if going_left {
                 cur_idx = 2 * cur_idx + 1;

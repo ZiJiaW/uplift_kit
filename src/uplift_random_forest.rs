@@ -1,15 +1,17 @@
 use crate::uplift_tree::*;
 use concurrent_queue::ConcurrentQueue;
 use mimalloc::MiMalloc;
-use polars::prelude::*;
+use pyo3::types::PyList;
 use pyo3::Python;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::{
     sync::mpsc::{self, Sender},
     thread,
 };
-use threadpool::ThreadPool;
 
+use std::sync::Arc;
+use threadpool::ThreadPool;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
@@ -69,7 +71,8 @@ impl UpliftRandomForestModel {
 
     pub fn fit(
         &mut self,
-        data_file: String,
+        data: HashMap<String, &PyList>,
+        x_names: Vec<String>,
         treatment_col: String,
         outcome_col: String,
         mut n_threads: i32,
@@ -77,9 +80,10 @@ impl UpliftRandomForestModel {
         if n_threads < 0 {
             n_threads = num_cpus::get() as i32;
         }
-        let data = DataSet::from_parquet(data_file, treatment_col.clone(), outcome_col.clone());
-        self.treatment_col = treatment_col;
-        self.outcome_col = outcome_col;
+        self.treatment_col = treatment_col.clone();
+        self.outcome_col = outcome_col.clone();
+        let data = DataSet::from_pylist(data, x_names, treatment_col, outcome_col);
+
         let (tx, rx) = mpsc::channel();
 
         pyprint(format!("Start training with {} threads...", n_threads));
@@ -137,44 +141,30 @@ impl UpliftRandomForestModel {
         }
     }
 
-    pub fn predict(&self, data_file: String, mut n_threads: i32) -> Vec<Vec<f64>> {
+    pub fn predict_rows(&self, data: Vec<Vec<SplitValue>>, mut n_threads: i32) -> Vec<Vec<f64>> {
         if n_threads < 0 {
             n_threads = num_cpus::get() as i32;
         }
-        let data = LazyFrame::scan_parquet(data_file, Default::default())
-            .unwrap()
-            .select(
-                &self
-                    .trees
-                    .first()
-                    .unwrap()
-                    .feature_cols()
-                    .iter()
-                    .map(|f| col(f))
-                    .collect::<Vec<Expr>>(),
-            )
-            .collect()
-            .unwrap();
+        if n_threads == 1 {
+            return data.iter().map(|x| self.predict_row(x)).collect();
+        }
         let task_q = Arc::new(ConcurrentQueue::unbounded());
         let (tx, rx) = mpsc::channel();
         for i in 0..self.n_estimators {
             task_q.push(i).unwrap();
         }
         let trees = Arc::new(self.trees.clone());
+        let data = Arc::new(data);
         for _ in 0..n_threads {
             let trees_inner = trees.clone();
             let tx_inner = tx.clone();
             let task_q_inner = task_q.clone();
-            let data_inner = data.clone();
+            let data = data.clone();
             thread::spawn(move || loop {
                 match task_q_inner.pop() {
                     Ok(tree_idx) => {
                         tx_inner
-                            .send(
-                                trees_inner[tree_idx as usize]
-                                    .predict_frame(&data_inner)
-                                    .unwrap(),
-                            )
+                            .send(trees_inner[tree_idx as usize].predict_rows(&data))
                             .unwrap();
                     }
                     Err(_) => {
@@ -208,7 +198,7 @@ impl UpliftRandomForestModel {
         res
     }
 
-    pub fn predict_row(&self, x: &Vec<AnyValue>) -> Vec<f64> {
+    pub fn predict_row(&self, x: &Vec<SplitValue>) -> Vec<f64> {
         let mut res = Vec::new();
         for tree in &self.trees {
             let preds = tree.predict_row(x);
