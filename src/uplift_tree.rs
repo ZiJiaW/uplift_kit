@@ -1,12 +1,12 @@
+use lockfree_object_pool::{LinearObjectPool, LinearOwnedReusable};
+use noisy_float::prelude::*;
+use rand::seq::{index::sample, IteratorRandom, SliceRandom};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     sync::mpsc,
     sync::{Arc, Mutex},
 };
-
-use lockfree_object_pool::{LinearObjectPool, LinearOwnedReusable};
-use rand::seq::{IteratorRandom, SliceRandom};
-use serde::{Deserialize, Serialize};
 use threadpool::ThreadPool;
 
 use pyo3::prelude::FromPyObject;
@@ -181,26 +181,39 @@ impl DataSet {
 
     fn propose_splits(&self, f: &String, max_bins: i32) -> Vec<SplitValue> {
         let col_idx = *self.raw_data.idx_map.get(f).unwrap();
+        let max_bins = max_bins as usize;
         let rng = &mut rand::thread_rng();
         if col_idx >= 0 {
-            let mut split_values: Vec<SplitValue> = Vec::with_capacity(max_bins as usize);
-            let mut row_index = Vec::from_iter(self.index.iter().map(|v| *v));
+            let mut split_values: Vec<SplitValue> = Vec::with_capacity(max_bins);
             let col_values = &self.raw_data.numeric_cols[col_idx as usize];
-            row_index.sort_unstable_by(|a, b| col_values[*a].partial_cmp(&col_values[*b]).unwrap());
-            let split_range = row_index.len() as i32 / max_bins;
+            // sample max_bins * 500 to propose quantile split
+            let sample_size = std::cmp::min(max_bins * 500, self.index.len());
+            let mut sample_values: Vec<N64> = sample(rng, self.index.len(), sample_size)
+                .iter()
+                .map(|i| n64(col_values[self.index[i]]))
+                .collect();
+
+            sample_values.sort_unstable();
+
             for i in 1..max_bins {
                 split_values.push(SplitValue::Numeric(
-                    col_values[row_index[(i * split_range) as usize]],
+                    sample_values[sample_size * i / max_bins].into(),
                 ))
             }
+
             split_values.dedup_by(|a, b| a.extract_f() == b.extract_f());
             split_values
         } else {
             let col_values = &self.raw_data.string_cols[(-col_idx - 1) as usize];
+            let sample_size = std::cmp::min(max_bins * 500, self.index.len());
             let mut unique_v = HashSet::new();
-            self.index.iter().for_each(|v| {
-                unique_v.insert(col_values[*v].clone());
-            });
+
+            sample(rng, self.index.len(), sample_size)
+                .iter()
+                .for_each(|i| {
+                    unique_v.insert(col_values[self.index[i]].clone());
+                });
+
             unique_v
                 .iter()
                 .choose_multiple(rng, (max_bins - 1) as usize)
@@ -382,6 +395,10 @@ impl UpliftTreeModel {
             regularization,
             alpha,
         }
+    }
+
+    pub fn feature_cols(&self) -> Vec<String> {
+        return self.feature_cols.clone();
     }
 
     fn calc_score(v: &Vec<i32>, eval: &EvalFunc, balance: bool, cur_size: usize) -> f64 {

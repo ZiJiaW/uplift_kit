@@ -69,6 +69,10 @@ impl UpliftRandomForestModel {
         }
     }
 
+    pub fn feature_cols(&self) -> Vec<String> {
+        self.trees.first().unwrap().feature_cols()
+    }
+
     pub fn fit(
         &mut self,
         data: HashMap<String, &PyList>,

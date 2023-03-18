@@ -1,6 +1,6 @@
 [package]
 name = "uplift_kit"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 
 [lib]
@@ -19,3 +19,4 @@ num_cpus = "1.0"
 concurrent-queue = "2.1.0"
 threadpool = "1.8.1"
 lockfree-object-pool = "0.1"
+noisy_float = "0.2.0"
