@@ -1,10 +1,8 @@
 # uplift_kit
 
-This package currently implements the UpliftRandomForest algorithm, and may implement more machine learning algorithm designed for uplift modeling.
+This package implements the UpliftRandomForest algorithm (same in [causalml](https://github.com/uber/causalml), but faster and less memory-consuming), and may implement more machine learning algorithm designed for uplift modeling.
 
-**Motivation**: I tried the UpliftRandomForestModel implemented in [calsalml](https://github.com/uber/causalml), and it generally outperforms other algorithms like t-learner/x-learner. But unfortunately, causalml's implementation in python is slow and memory-consuming, which makes the training procedure rather painful.
-
-So I implement the UpliftRandomForest algorithm in Rust and provide a python API. In my test, it is 10x~20x faster than causalml' implementation and consumes much less memory.
+Reference for detail: Piotr Rzepakowski and Szymon Jaroszewicz. Decision trees for uplift modeling with single and multiple treatments. Knowl. Inf. Syst., 32(2):303–327, August 2012.
 
 ## Usage
 

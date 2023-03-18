@@ -78,6 +78,10 @@ impl _UpliftRandomForestModel {
         let mut f = File::create(path).unwrap();
         f.write_all(json_model.as_bytes()).unwrap();
     }
+
+    fn feature_cols(&self) -> Vec<String> {
+        self.inner_model.feature_cols()
+    }
 }
 
 #[pymodule]

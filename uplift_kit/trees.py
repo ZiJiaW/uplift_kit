@@ -91,7 +91,7 @@ class UpliftRandomForestModel:
             data_dict[col] = truncated_data[col].values.tolist()
         self.__model.fit(data_dict, x_names, treatment_col, outcome_col, n_threads)
 
-    def predict(self, data: pd.DataFrame, n_threads: int = -1) -> np.array:
+    def predict(self, data: pd.DataFrame, n_threads: int = -1) -> list:
         """
         Predict for a data frame. Threads will be created to speed up prediction, so this function is suitable for processing large data. For small data, use `predict_row` instead.
 
@@ -104,3 +104,6 @@ class UpliftRandomForestModel:
         """
 
         return self.__model.predict(data.values.tolist(), n_threads)
+
+    def feature_cols(self) -> list:
+        return self.__model.feature_cols()
