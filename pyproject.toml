@@ -14,5 +14,8 @@ classifiers = [
 
 dependencies = [
     'pandas >= 1.0',
-    'pyarrow >= 10.0'
+    'pyarrow >= 10.0',
+    'scikit-learn',
+    'numpy',
+    'xgboost'
 ]
