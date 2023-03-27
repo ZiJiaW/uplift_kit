@@ -1,9 +1,8 @@
 from __future__ import annotations
 from uplift_kit.uplift_kit import _UpliftRandomForestModel
 import pandas as pd
-import tempfile
 import numpy as np
-from pandas.api.types import is_integer_dtype, is_string_dtype, is_numeric_dtype
+from pandas.api.types import is_integer_dtype
 
 
 class UpliftRandomForestModel:
