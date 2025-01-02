@@ -31,12 +31,12 @@ impl EvalFunc {
 
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize, FromPyObject)]
 pub enum SplitValue {
-    Numeric(f64),
+    Numeric(f32),
     Str(String),
 }
 
 impl SplitValue {
-    fn extract_f(&self) -> f64 {
+    fn extract_f(&self) -> f32 {
         match self {
             &SplitValue::Numeric(v) => v,
             _ => panic!("not f64"),
@@ -57,6 +57,7 @@ struct TreeNode {
     pub col_idx: i32,
     pub split_value: SplitValue,
     pub prob: Vec<f64>,
+    pub gain: f64,
 }
 
 impl TreeNode {
@@ -66,17 +67,18 @@ impl TreeNode {
             col_idx: -1,
             split_value: SplitValue::Numeric(0.),
             prob: Vec::new(),
+            gain: 0.,
         }
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpliftTreeModel {
     nodes: Vec<TreeNode>,
-    max_depth: i32,
-    min_sample_leaf: i32,
-    max_features: i32,
+    max_depth: usize,
+    min_sample_leaf: usize,
+    max_features: usize,
     eval_func: EvalFunc,
-    max_bins: i32,
+    max_bins: usize,
     treatment_col: String,
     outcome_col: String,
     feature_cols: Vec<String>,
@@ -88,7 +90,7 @@ pub struct UpliftTreeModel {
 #[derive(Clone)]
 struct RawData {
     string_cols: Vec<Vec<String>>,
-    numeric_cols: Vec<Vec<f64>>,
+    numeric_cols: Vec<Vec<f32>>,
     treatment_col: Vec<i32>,
     outcome_col: Vec<i8>,
     idx_map: HashMap<String, i32>, // + for numeric, - for string
@@ -114,7 +116,7 @@ impl RawData {
         };
 
         for f in &x_names {
-            if let Ok(f_col) = data.get(f).unwrap().extract::<Vec<f64>>() {
+            if let Ok(f_col) = data.get(f).unwrap().extract::<Vec<f32>>() {
                 raw_data.numeric_cols.push(f_col);
                 raw_data
                     .idx_map
@@ -179,18 +181,17 @@ impl DataSet {
         }
     }
 
-    fn propose_splits(&self, f: &String, max_bins: i32) -> Vec<SplitValue> {
+    fn propose_splits(&self, f: &String, max_bins: usize) -> Vec<SplitValue> {
         let col_idx = *self.raw_data.idx_map.get(f).unwrap();
-        let max_bins = max_bins as usize;
         let rng = &mut rand::thread_rng();
         if col_idx >= 0 {
             let mut split_values: Vec<SplitValue> = Vec::with_capacity(max_bins);
             let col_values = &self.raw_data.numeric_cols[col_idx as usize];
             // sample max_bins * 500 to propose quantile split
             let sample_size = std::cmp::min(max_bins * 500, self.index.len());
-            let mut sample_values: Vec<N64> = sample(rng, self.index.len(), sample_size)
+            let mut sample_values: Vec<N32> = sample(rng, self.index.len(), sample_size)
                 .iter()
-                .map(|i| n64(col_values[self.index[i]]))
+                .map(|i| n32(col_values[self.index[i]]))
                 .collect();
 
             sample_values.sort_unstable();
@@ -354,29 +355,14 @@ fn gini_one(p: f64) -> f64 {
     1. - p.powi(2)
 }
 
-fn entropy(p: f64, q: f64) -> f64 {
-    if q == 0. || p == 0. {
-        0.
-    } else {
-        -q * q.log2() - p * p.log2()
-    }
-}
-
-fn entropy_one(p: f64) -> f64 {
-    if p == 0. {
-        0.
-    } else {
-        -p * p.log2()
-    }
-}
 
 impl UpliftTreeModel {
     pub fn new(
-        max_depth: i32,
-        min_sample_leaf: i32,
-        max_features: i32,
+        max_depth: usize,
+        min_sample_leaf: usize,
+        max_features: usize,
         eval_func: EvalFunc,
-        max_bins: i32,
+        max_bins: usize,
         balance: bool,
         regularization: bool,
         alpha: f64,
@@ -442,7 +428,6 @@ impl UpliftTreeModel {
         n_left: usize,
         n_cur: usize,
         alpha: f64,
-        is_ed: bool,
     ) -> f64 {
         let n_c = cur_summary[0];
         let n_t = n_cur as i32 - n_c;
@@ -453,34 +438,18 @@ impl UpliftTreeModel {
         let pca = n_c_left as f64 / n_c as f64;
         let pta = n_t_left as f64 / n_t as f64;
         let mut res = 0.5;
-        if is_ed {
-            // global treatment imbalance penalty
-            res += alpha * gini(pc_left, pt_left) * ed(pca, pta);
-            // single treatment imbalance penalty
-            for k in 1..left_summary.len() / 2 {
-                let pti = left_summary[2 * k] as f64 / (left_summary[2 * k] + n_c_left) as f64;
-                let ptia = left_summary[2 * k] as f64 / cur_summary[2 * k] as f64;
-                res += (1. - alpha) * gini(pti, 1. - pti) * ed(ptia, pca);
-            }
-            // panalty for large
-            for k in 0..left_summary.len() / 2 {
-                res += (left_summary[2 * k] as f64 / n_left as f64)
-                    * gini_one(left_summary[2 * k] as f64 / cur_summary[2 * k] as f64);
-            }
-        } else {
-            // global treatment imbalance penalty
-            res += alpha * entropy(pc_left, pt_left) * kl(pca, pta);
-            // single treatment imbalance penalty
-            for k in 1..left_summary.len() / 2 {
-                let pti = left_summary[2 * k] as f64 / (left_summary[2 * k] + n_c_left) as f64;
-                let ptia = left_summary[2 * k] as f64 / cur_summary[2 * k] as f64;
-                res += (1. - alpha) * entropy(pti, 1. - pti) * kl(ptia, pca);
-            }
-            // panalty for large
-            for k in 0..left_summary.len() / 2 {
-                res += (left_summary[2 * k] as f64 / n_left as f64)
-                    * entropy_one(left_summary[2 * k] as f64 / cur_summary[2 * k] as f64);
-            }
+        // global treatment imbalance penalty
+        res += alpha * gini(pc_left, pt_left) * ed(pca, pta);
+        // single treatment imbalance penalty
+        for k in 1..left_summary.len() / 2 {
+            let pti = left_summary[2 * k] as f64 / (left_summary[2 * k] + n_c_left) as f64;
+            let ptia = left_summary[2 * k] as f64 / cur_summary[2 * k] as f64;
+            res += (1. - alpha) * gini(pti, 1. - pti) * ed(ptia, pca);
+        }
+        // panalty for large
+        for k in 0..left_summary.len() / 2 {
+            res += (left_summary[2 * k] as f64 / n_left as f64)
+                * gini_one(left_summary[2 * k] as f64 / cur_summary[2 * k] as f64);
         }
         res
     }
@@ -503,7 +472,7 @@ impl UpliftTreeModel {
     fn build(
         &self,
         cur_idx: usize,
-        depth: i32,
+        depth: usize,
         nodes: &mut Vec<TreeNode>,
         cur_summary: Vec<i32>,
         data: DataSet,
@@ -520,7 +489,7 @@ impl UpliftTreeModel {
 
         for f in self
             .feature_cols
-            .choose_multiple(rng, self.max_features as usize)
+            .choose_multiple(rng, self.max_features)
         {
             let data = data.clone();
             let best_split = best_split.clone();
@@ -538,9 +507,7 @@ impl UpliftTreeModel {
                 let split_values = data.propose_splits(&f, max_bins);
                 for v in split_values {
                     let (left, right) = data.split_set(&f, v.clone());
-                    if left.n_rows() <= min_sample_leaf as usize
-                        || right.n_rows() <= min_sample_leaf as usize
-                    {
+                    if left.n_rows() <= min_sample_leaf || right.n_rows() <= min_sample_leaf {
                         continue;
                     }
                     let left_summary = left.summary();
@@ -558,7 +525,6 @@ impl UpliftTreeModel {
                             left.n_rows(),
                             data.n_rows(),
                             alpha,
-                            eval == EvalFunc::Euclidean,
                         );
                     }
                     best_split.lock().unwrap().exchange(
@@ -587,6 +553,7 @@ impl UpliftTreeModel {
                 .unwrap() as i32;
             nodes[cur_idx].col_name = split.split_col.clone();
             nodes[cur_idx].split_value = split.split_value.clone();
+            nodes[cur_idx].gain = split.gain;
             self.build(
                 2 * cur_idx + 1,
                 depth + 1,
@@ -637,5 +604,20 @@ impl UpliftTreeModel {
             }
         }
         cur_node.prob.clone()
+    }
+
+    pub fn get_feature_importance(&self, importance_type: String) -> Vec<f64> {
+        let mut res = vec![0.; self.feature_cols.len()];
+        for node in &self.nodes {
+            if node.gain <= 0. {
+                continue;
+            }
+            if importance_type == "gain" {
+                res[node.col_idx as usize] += node.gain;
+            } else {
+                res[node.col_idx as usize] += 1.;
+            }
+        }
+        res
     }
 }

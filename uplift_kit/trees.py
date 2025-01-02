@@ -102,7 +102,12 @@ class UpliftRandomForestModel:
 
         """
 
-        return self.__model.predict(data.values.tolist(), n_threads)
+        return np.array(self.__model.predict(data.values.tolist(), n_threads))
 
     def feature_cols(self) -> list:
         return self.__model.feature_cols()
+    
+    def get_feature_importance(self, importance_type: str = "gain") -> dict:
+        if importance_type not in ["gain", "cover"]:
+            raise ValueError("importance_type must be 'gain' or 'cover'")
+        return self.__model.get_feature_importance(importance_type)

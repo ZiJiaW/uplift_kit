@@ -18,11 +18,11 @@ static GLOBAL: MiMalloc = MiMalloc;
 #[derive(Serialize, Deserialize)]
 pub struct UpliftRandomForestModel {
     n_estimators: i32,
-    max_features: i32,
-    max_depth: i32,
-    min_sample_leaf: i32,
+    max_features: usize,
+    max_depth: usize,
+    min_sample_leaf: usize,
     eval_func: String,
-    max_bins: i32,
+    max_bins: usize,
     treatment_col: String,
     outcome_col: String,
     balance: bool,
@@ -44,11 +44,11 @@ fn pyprint<S: AsRef<str>>(line: S) {
 impl UpliftRandomForestModel {
     pub fn new(
         n_estimators: i32,
-        max_features: i32,
-        max_depth: i32,
-        min_sample_leaf: i32,
+        max_features: usize,
+        max_depth: usize,
+        min_sample_leaf: usize,
         eval_func: String,
-        max_bins: i32,
+        max_bins: usize,
         balance: bool,
         regularization: bool,
         alpha: f64,
@@ -218,5 +218,19 @@ impl UpliftRandomForestModel {
             res[i] /= self.n_estimators as f64;
         }
         return res;
+    }
+
+    pub fn get_feature_importance(&self, importance_type: String) -> Vec<f64> {
+        let mut res = vec![0.0; self.feature_cols().len()];
+        for tree in &self.trees {
+            let imp = tree.get_feature_importance(importance_type.clone());
+            for i in 0..res.len() {
+                res[i] += imp[i];
+            }
+        }
+        for i in 0..res.len() {
+            res[i] /= self.n_estimators as f64;
+        }
+        res
     }
 }
